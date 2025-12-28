@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/briandowns/spinner"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/yourusername/llamasidekick/internal/config"
 	"github.com/yourusername/llamasidekick/internal/ollama"
@@ -99,9 +101,10 @@ func (m *PlanMode) Run(client *ollama.Client, sess *session.Session, cfg *config
 		// Add user message to history
 		sess.AddMessage("user", input)
 		
-		// Generate response
-		fmt.Print(lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Render("\nAssistant: "))
-		fmt.Println() // New line before content
+		// Start spinner
+		s := spinner.New(spinner.CharSets[11], 100*time.Millisecond)
+		s.Suffix = " Thinking..."
+		s.Start()
 		
 		var fullResponse strings.Builder
 		modelName := cfg.GetModelForMode("plan")
@@ -111,11 +114,19 @@ func (m *PlanMode) Run(client *ollama.Client, sess *session.Session, cfg *config
 			m.GetSystemPrompt(),
 			cfg.Ollama.Temperature,
 			func(chunk string) error {
+				if s.Active() {
+					s.Stop()
+					fmt.Print(lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Render("\nAssistant: "))
+					fmt.Println()
+				}
 				fullResponse.WriteString(chunk)
 				return nil
 			},
 		)
 		
+		if s.Active() {
+			s.Stop()
+		}
 		if err != nil {
 			fmt.Printf("\nError: %v\n", err)
 			continue

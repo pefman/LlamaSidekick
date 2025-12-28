@@ -46,3 +46,40 @@ func ReadFilesFromInput(input string) string {
 	
 	return input
 }
+
+// extractAndCreateFiles finds code blocks with FILENAME: prefix and creates the files
+func extractAndCreateFiles(response string) []string {
+	var createdFiles []string
+	
+	// Pattern: FILENAME: path/to/file.ext followed by code block
+	pattern := regexp.MustCompile(`(?i)FILENAME:\s*([^\n]+)\n\s*\x60\x60\x60[^\n]*\n([\s\S]*?)\x60\x60\x60`)
+	matches := pattern.FindAllStringSubmatch(response, -1)
+	
+	for _, match := range matches {
+		if len(match) < 3 {
+			continue
+		}
+		
+		filename := strings.TrimSpace(match[1])
+		content := match[2]
+		
+		// Create directory if needed
+		dir := filepath.Dir(filename)
+		if dir != "." {
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				fmt.Printf("\033[38;5;9mError creating directory %s: %v\033[0m\n", dir, err)
+				continue
+			}
+		}
+		
+		// Write file
+		if err := os.WriteFile(filename, []byte(content), 0644); err != nil {
+			fmt.Printf("\033[38;5;9mError creating file %s: %v\033[0m\n", filename, err)
+			continue
+		}
+		
+		createdFiles = append(createdFiles, filename)
+	}
+	
+	return createdFiles
+}

@@ -5,8 +5,10 @@ import (
 	"io"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/atotto/clipboard"
+	"github.com/briandowns/spinner"
 	"github.com/chzyer/readline"
 	"github.com/yourusername/llamasidekick/internal/config"
 	"github.com/yourusername/llamasidekick/internal/modes"
@@ -208,16 +210,29 @@ func executeQuickCommand(mode modes.Mode, client *ollama.Client, sess *session.S
 		}
 	}
 	
+	// Start spinner
+	s := spinner.New(spinner.CharSets[11], 100*time.Millisecond)
+	s.Suffix = " Thinking..."
+	s.Start()
+	
 	err := client.GenerateWithModel(
 		modelName,
 		conversationContext.String(),
 		mode.GetSystemPrompt(),
 		cfg.Ollama.Temperature,
 		func(chunk string) error {
+			if s.Active() {
+				s.Stop()
+				fmt.Println() // Add newline after spinner
+			}
 			fullResponse.WriteString(chunk)
 			return nil
 		},
 	)
+	
+	if s.Active() {
+		s.Stop()
+	}
 	
 	if err != nil {
 		return err

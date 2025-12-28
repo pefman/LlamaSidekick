@@ -7,8 +7,10 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/atotto/clipboard"
+	"github.com/briandowns/spinner"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/yourusername/llamasidekick/internal/config"
 	"github.com/yourusername/llamasidekick/internal/ollama"
@@ -90,8 +92,10 @@ func (m *CmdMode) Run(client *ollama.Client, sess *session.Session, cfg *config.
 		// Add user message to history
 		sess.AddMessage("user", input)
 		
-		// Generate response
-		fmt.Print(lipgloss.NewStyle().Foreground(lipgloss.Color("yellow")).Render("\nCommands:\n"))
+		// Start spinner
+		s := spinner.New(spinner.CharSets[11], 100*time.Millisecond)
+		s.Suffix = " Generating command..."
+		s.Start()
 		
 		var fullResponse strings.Builder
 		modelName := cfg.GetModelForMode("cmd")
@@ -101,11 +105,19 @@ func (m *CmdMode) Run(client *ollama.Client, sess *session.Session, cfg *config.
 			m.GetSystemPrompt(),
 			cfg.Ollama.Temperature,
 			func(chunk string) error {
+				if s.Active() {
+					s.Stop()
+					fmt.Print(lipgloss.NewStyle().Foreground(lipgloss.Color("yellow")).Render("\nCommands:\n"))
+				}
 				fmt.Print(responseStyle.Render(chunk))
 				fullResponse.WriteString(chunk)
 				return nil
 			},
 		)
+		
+		if s.Active() {
+			s.Stop()
+		}
 		
 		if err != nil {
 			fmt.Printf("\nError: %v\n", err)

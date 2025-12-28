@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/briandowns/spinner"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/yourusername/llamasidekick/internal/config"
 	"github.com/yourusername/llamasidekick/internal/ollama"
@@ -33,6 +35,7 @@ Your capabilities:
 3. Suggest sequences of actions to achieve goals
 4. Identify prerequisites and dependencies
 5. Anticipate potential issues and provide solutions
+6. CREATE FILES automatically when generating scripts or code
 
 When given a task:
 1. Analyze the requirements thoroughly
@@ -40,15 +43,21 @@ When given a task:
 3. Identify what information or tools are needed
 4. Provide clear, actionable guidance
 5. Think through potential obstacles
+6. When you provide a script or code, specify the filename using this format:
+   FILENAME: path/to/file.ext
+   Followed immediately by the code block with triple backticks
 
 FORMATTING:
 - Use markdown for clear communication
 - Use bold (**text**) for emphasis
 - Use headers (##) to organize sections
 - Use numbered lists and bullet points
-- Use code blocks with triple backticks when needed
+- CRITICAL: When providing code/scripts, use this exact format:
+  FILENAME: script_name.sh
+  Then add a code block with the language specified (e.g., bash, python, go)
+  The file will be automatically created with the code content
 
-Be thorough, methodical, and proactive in your assistance.`
+Be thorough, methodical, and proactive in your assistance. CREATE files automatically.`
 }
 
 func (m *AgentMode) Run(client *ollama.Client, sess *session.Session, cfg *config.Config) error {
@@ -80,8 +89,10 @@ func (m *AgentMode) Run(client *ollama.Client, sess *session.Session, cfg *confi
 		// Add user message to history
 		sess.AddMessage("user", input)
 		
-		// Generate response
-		fmt.Print(lipgloss.NewStyle().Foreground(lipgloss.Color("blue")).Render("\nAgent: "))
+		// Start spinner
+		s := spinner.New(spinner.CharSets[11], 100*time.Millisecond)
+		s.Suffix = " Thinking..."
+		s.Start()
 		
 		var fullResponse strings.Builder
 		modelName := cfg.GetModelForMode("agent")
@@ -91,11 +102,19 @@ func (m *AgentMode) Run(client *ollama.Client, sess *session.Session, cfg *confi
 			m.GetSystemPrompt(),
 			cfg.Ollama.Temperature,
 			func(chunk string) error {
+				if s.Active() {
+					s.Stop()
+					fmt.Print(lipgloss.NewStyle().Foreground(lipgloss.Color("blue")).Render("\nAgent: "))
+				}
 				fmt.Print(responseStyle.Render(chunk))
 				fullResponse.WriteString(chunk)
 				return nil
 			},
 		)
+		
+		if s.Active() {
+			s.Stop()
+		}
 		
 		if err != nil {
 			fmt.Printf("\nError: %v\n", err)
@@ -107,8 +126,16 @@ func (m *AgentMode) Run(client *ollama.Client, sess *session.Session, cfg *confi
 		renderedMd := renderer.RenderMarkdown(markdown)
 		fmt.Print(renderedMd)
 		fmt.Println("\n")
-		
-		// Add assistant response to history
+				// Extract and create files from response
+		createdFiles := extractAndCreateFiles(markdown)
+		if len(createdFiles) > 0 {
+			fmt.Println("\033[1;32m✓ Created files:\033[0m")
+			for _, file := range createdFiles {
+				fmt.Printf("  - %s\n", file)
+			}
+			fmt.Println()
+		}
+				// Add assistant response to history
 		sess.AddMessage("assistant", markdown)
 		
 		// Save session

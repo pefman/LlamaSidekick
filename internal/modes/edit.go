@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/briandowns/spinner"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/yourusername/llamasidekick/internal/config"
 	"github.com/yourusername/llamasidekick/internal/ollama"
@@ -79,9 +81,10 @@ func (m *EditMode) Run(client *ollama.Client, sess *session.Session, cfg *config
 		// Add user message to history
 		sess.AddMessage("user", input)
 		
-		// Generate response
-		fmt.Print(lipgloss.NewStyle().Foreground(lipgloss.Color("green")).Render("\nAssistant: "))
-		fmt.Println()
+		// Start spinner
+		s := spinner.New(spinner.CharSets[11], 100*time.Millisecond)
+		s.Suffix = " Thinking..."
+		s.Start()
 		
 		var fullResponse strings.Builder
 		modelName := cfg.GetModelForMode("edit")

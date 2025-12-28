@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/briandowns/spinner"
 	"github.com/yourusername/llamasidekick/internal/config"
 	"github.com/yourusername/llamasidekick/internal/ollama"
 	"github.com/yourusername/llamasidekick/internal/renderer"
@@ -82,7 +84,10 @@ func (m *AskMode) Run(client *ollama.Client, sess *session.Session, cfg *config.
 
 		sess.AddMessage("user", input)
 
-		fmt.Print("\n\033[1;38;5;75mAsk:\033[0m ")
+		// Start spinner
+		s := spinner.New(spinner.CharSets[11], 100*time.Millisecond)
+		s.Suffix = " Thinking..."
+		s.Start()
 
 		var fullResponse strings.Builder
 		err = client.GenerateWithModel(
