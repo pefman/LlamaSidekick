@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -21,7 +23,7 @@ func (m *EditMode) Name() string {
 }
 
 func (m *EditMode) Description() string {
-	return "Get help editing code with suggestions and diffs"
+	return "Get help editing code with suggestions and diffs - automatically reads referenced files"
 }
 
 func (m *EditMode) GetSystemPrompt() string {
@@ -33,6 +35,9 @@ When helping with edits:
 3. Explain why the changes improve the code
 4. Consider edge cases and potential issues
 5. Provide diffs or clear before/after examples when helpful
+
+The user's message may include file contents automatically loaded from their working directory.
+When you see "File contents:" followed by file content, use that context to provide specific suggestions.
 
 Always prioritize code quality, readability, and best practices.
 
@@ -70,6 +75,40 @@ func (m *EditMode) Run(client *ollama.Client, sess *session.Session, cfg *config
 			break
 		}
 		
+		// Detect and read files mentioned in the input
+		enhancedInput := input
+		filePattern := regexp.MustCompile(`(?:^|\s)([a-zA-Z0-9_\-./\\]+\.(go|js|ts|py|java|c|cpp|h|rs|rb|php|cs|swift|kt|sh|bash|yml|yaml|json|xml|md|txt))(?:\s|$)`)
+		matches := filePattern.FindAllStringSubmatch(input, -1)
+		
+		if len(matches) > 0 {
+			var fileContents strings.Builder
+			fileContents.WriteString("\n\nFile contents:\n")
+			
+			for _, match := range matches {
+				filename := match[1]
+				
+				// Try to read the file from current directory
+				content, err := os.ReadFile(filename)
+				if err != nil {
+					// Try with absolute path
+					absPath, _ := filepath.Abs(filename)
+					content, err = os.ReadFile(absPath)
+					if err != nil {
+						fmt.Printf("\033[38;5;240m(Note: Could not read file '%s')\033[0m\n", filename)
+						continue
+					}
+				}
+				
+				fileContents.WriteString(fmt.Sprintf("\n--- %s ---\n", filename))
+				fileContents.WriteString(string(content))
+				fileContents.WriteString(fmt.Sprintf("\n--- End of %s ---\n", filename))
+			}
+			
+			if fileContents.Len() > len("\n\nFile contents:\n") {
+				enhancedInput = input + fileContents.String()
+			}
+		}
+		
 		// Add user message to history
 		sess.AddMessage("user", input)
 		
@@ -81,7 +120,7 @@ func (m *EditMode) Run(client *ollama.Client, sess *session.Session, cfg *config
 		modelName := cfg.GetModelForMode("edit")
 		err = client.GenerateWithModel(
 			modelName,
-			input,
+			enhancedInput,
 			m.GetSystemPrompt(),
 			cfg.Ollama.Temperature,
 			func(chunk string) error {
