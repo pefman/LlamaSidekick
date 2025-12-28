@@ -29,5 +29,8 @@ Thumbs.db
 # Project-specific
 .llamasidekick/
 
+# GoReleaser output
+dist/
+
 # Misc
 token
