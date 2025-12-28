@@ -26,6 +26,9 @@ func (m *AskMode) Description() string {
 func (m *AskMode) GetSystemPrompt() string {
 	return `You are a helpful information assistant. Your role is to provide clear, accurate information and answer questions.
 
+The user's message may include file contents automatically loaded from their working directory.
+When you see "File contents:" followed by file content, analyze and explain that specific content.
+
 CRITICAL RULES:
 1. NEVER suggest making changes, edits, or implementations
 2. NEVER provide plans or action items
@@ -74,6 +77,9 @@ func (m *AskMode) Run(client *ollama.Client, sess *session.Session, cfg *config.
 			return nil
 		}
 
+		// Detect and read files mentioned in the input
+		enhancedInput := ReadFilesFromInput(input)
+
 		sess.AddMessage("user", input)
 
 		fmt.Print("\n\033[1;38;5;75mAsk:\033[0m ")
@@ -81,7 +87,7 @@ func (m *AskMode) Run(client *ollama.Client, sess *session.Session, cfg *config.
 		var fullResponse strings.Builder
 		err = client.GenerateWithModel(
 			modelName,
-			input,
+			enhancedInput,
 			m.GetSystemPrompt(),
 			cfg.Ollama.Temperature,
 			func(chunk string) error {

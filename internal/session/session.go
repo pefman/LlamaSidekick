@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/yourusername/llamasidekick/internal/config"
 )
 
 // Message represents a single conversation message
@@ -80,12 +82,12 @@ func (s *Session) SetMode(mode string) {
 
 // Save saves the session to disk
 func (s *Session) Save() error {
-	sessionDir := filepath.Join(s.ProjectRoot, ".llamasidekick")
-	if err := os.MkdirAll(sessionDir, 0755); err != nil {
-		return fmt.Errorf("failed to create session dir: %w", err)
+	configDir, err := config.GetConfigDir()
+	if err != nil {
+		return fmt.Errorf("failed to get config dir: %w", err)
 	}
 	
-	sessionFile := filepath.Join(sessionDir, "session.json")
+	sessionFile := filepath.Join(configDir, "session.json")
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal session: %w", err)
@@ -100,13 +102,13 @@ func (s *Session) Save() error {
 
 // SaveDebug saves a debug snapshot of the session with mode-specific filename
 func (s *Session) SaveDebug(mode string) error {
-	sessionDir := filepath.Join(s.ProjectRoot, ".llamasidekick")
-	if err := os.MkdirAll(sessionDir, 0755); err != nil {
-		return fmt.Errorf("failed to create session dir: %w", err)
+	configDir, err := config.GetConfigDir()
+	if err != nil {
+		return fmt.Errorf("failed to get config dir: %w", err)
 	}
 	
 	timestamp := time.Now().Format("20060102_150405")
-	sessionFile := filepath.Join(sessionDir, fmt.Sprintf("session_%s_%s.json", mode, timestamp))
+	sessionFile := filepath.Join(configDir, fmt.Sprintf("session_%s_%s.json", mode, timestamp))
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal session: %w", err)
@@ -121,7 +123,12 @@ func (s *Session) SaveDebug(mode string) error {
 
 // Load loads a session from disk
 func Load(projectRoot string) (*Session, error) {
-	sessionFile := filepath.Join(projectRoot, ".llamasidekick", "session.json")
+	configDir, err := config.GetConfigDir()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get config dir: %w", err)
+	}
+	
+	sessionFile := filepath.Join(configDir, "session.json")
 	
 	data, err := os.ReadFile(sessionFile)
 	if err != nil {

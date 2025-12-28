@@ -160,6 +160,9 @@ func RunPrompt(cfg *config.Config, client *ollama.Client, sess *session.Session)
 
 // executeQuickCommand executes a single command and returns to prompt
 func executeQuickCommand(mode modes.Mode, client *ollama.Client, sess *session.Session, cfg *config.Config, prompt string) error {
+	// Detect and read files from the prompt
+	enhancedPrompt := modes.ReadFilesFromInput(prompt)
+	
 	sess.AddMessage("user", prompt)
 	
 	fmt.Print("\n\033[1;38;5;170m" + mode.Name() + ":\033[0m ")
@@ -188,10 +191,15 @@ func executeQuickCommand(mode modes.Mode, client *ollama.Client, sess *session.S
 	
 	// Build conversation context from session history
 	var conversationContext strings.Builder
-	for _, msg := range sess.History {
+	for i, msg := range sess.History {
 		if msg.Role == "user" {
 			conversationContext.WriteString("User: ")
-			conversationContext.WriteString(msg.Content)
+			// Use enhanced prompt for the last user message
+			if i == len(sess.History)-1 {
+				conversationContext.WriteString(enhancedPrompt)
+			} else {
+				conversationContext.WriteString(msg.Content)
+			}
 			conversationContext.WriteString("\n\n")
 		} else if msg.Role == "assistant" {
 			conversationContext.WriteString("Assistant: ")
