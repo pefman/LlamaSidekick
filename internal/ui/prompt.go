@@ -26,7 +26,7 @@ func (a *autoCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) 
 		return nil, 0
 	}
 	
-	commands := []string{"/plan", "/edit", "/agent", "/cmd", "/menu", "/clear"}
+	commands := []string{"/plan", "/edit", "/agent", "/cmd", "/ask", "/menu", "/clear"}
 	
 	var suggestions [][]rune
 	for _, cmd := range commands {
@@ -115,9 +115,11 @@ func RunPrompt(cfg *config.Config, client *ollama.Client, sess *session.Session)
 				mode = &modes.AgentMode{}
 			case "cmd":
 				mode = &modes.CmdMode{}
+			case "ask":
+				mode = &modes.AskMode{}
 			default:
 				fmt.Printf("\033[38;5;9mUnknown command: /%s\033[0m\n", command)
-				fmt.Println("\033[38;5;240mAvailable commands: /plan, /edit, /agent, /cmd, /clear, or 'm' for menu\033[0m")
+				fmt.Println("\033[38;5;240mAvailable commands: /plan, /edit, /agent, /cmd, /ask, /clear, or 'm' for menu\033[0m")
 				continue
 			}
 			
@@ -173,6 +175,8 @@ func executeQuickCommand(mode modes.Mode, client *ollama.Client, sess *session.S
 		modeStr = "agent"
 	case *modes.CmdMode:
 		modeStr = "cmd"
+	case *modes.AskMode:
+		modeStr = "ask"
 	}
 	
 	modelName := cfg.GetModelForMode(modeStr)

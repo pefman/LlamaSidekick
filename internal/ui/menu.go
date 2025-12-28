@@ -52,6 +52,7 @@ func initialModel(cfg *config.Config) menuModel {
 			{name: "Edit", description: "Get help editing code with suggestions and diffs", isMode: true, mode: &modes.EditMode{}},
 			{name: "Agent", description: "Autonomous multi-step task execution and problem solving", isMode: true, mode: &modes.AgentMode{}},
 			{name: "CMD", description: "Get help with commands - generates but never executes", isMode: true, mode: &modes.CmdMode{}},
+			{name: "Ask", description: "Get information and answers without any changes or plans", isMode: true, mode: &modes.AskMode{}},
 			{name: "Configure Models", description: "Assign different models to different modes", isMode: false},
 		},
 		cursor:   0,

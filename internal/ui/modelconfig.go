@@ -25,7 +25,7 @@ func newModelConfigModel(client *ollama.Client, cfg *config.Config) modelConfigM
 	return modelConfigModel{
 		client: client,
 		cfg:    cfg,
-		modes:  []string{"plan", "edit", "agent", "cmd"},
+		modes:  []string{"plan", "edit", "agent", "cmd", "ask"},
 		cursor: 0,
 		state:  "select_mode",
 	}
