@@ -164,7 +164,7 @@ func Run(cfg *config.Config) error {
 
 	// Show welcome message and start prompt
 	fmt.Println("\n\033[1;38;5;205m🦙 LlamaSidekick\033[0m")
-	fmt.Println("\033[38;5;240mQuick commands: /plan, /edit, /agent, /cmd | Press 'm' for menu | 'q' to quit\033[0m")
+	fmt.Println("\033[38;5;240mQuick commands: /plan, /edit, /agent, /cmd, /ask | Press 'm' for menu | 'q' to quit\033[0m")
 	fmt.Println()
 
 	return RunPrompt(cfg, client, sess)
