@@ -35,7 +35,7 @@ func main() {
 	}
 
 	// Start the UI
-	if err := ui.Run(cfg); err != nil {
+	if err := ui.Run(cfg, version); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}

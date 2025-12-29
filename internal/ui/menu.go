@@ -28,7 +28,7 @@ type menuModel struct {
 	session  *session.Session
 }
 
-func initialModel(cfg *config.Config) menuModel {
+func initialModel(cfg *config.Config, version string) menuModel {
 	// Get current working directory
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -119,7 +119,7 @@ func (m menuModel) View() string {
 }
 
 // Run starts the UI
-func Run(cfg *config.Config) error {
+func Run(cfg *config.Config, version string) error {
 	// Check Ollama connection first
 	client := ollama.NewClient(cfg.Ollama.Host, cfg.Ollama.Model)
 	client.Debug = cfg.Ollama.Debug
@@ -167,14 +167,14 @@ func Run(cfg *config.Config) error {
 	fmt.Println("\033[38;5;240mQuick commands: /plan, /edit, /agent, /cmd, /ask | Press 'm' for menu | 'q' to quit\033[0m")
 	fmt.Println()
 
-	return RunPrompt(cfg, client, sess)
+	return RunPrompt(cfg, client, sess, version)
 }
 
 // ShowMenu displays the interactive menu (called from prompt)
-func ShowMenu(cfg *config.Config, client *ollama.Client, sess *session.Session) error {
+func ShowMenu(cfg *config.Config, client *ollama.Client, sess *session.Session, version string) error {
 	for {
 		// Run the menu
-		p := tea.NewProgram(initialModelWithSession(cfg, sess), tea.WithAltScreen())
+		p := tea.NewProgram(initialModelWithSession(cfg, sess, version), tea.WithAltScreen())
 		m, err := p.Run()
 		if err != nil {
 			return fmt.Errorf("error running menu: %w", err)
@@ -245,10 +245,11 @@ func ShowMenu(cfg *config.Config, client *ollama.Client, sess *session.Session) 
 	}
 }
 
-func initialModelWithSession(cfg *config.Config, sess *session.Session) menuModel {
+func initialModelWithSession(cfg *config.Config, sess *session.Session, version string) menuModel {
 	// Create Ollama client
 	client := ollama.NewClient(cfg.Ollama.Host, cfg.Ollama.Model)
 	client.Debug = cfg.Ollama.Debug
+	client.Version = version
 
 	return menuModel{
 		choices: []menuItem{

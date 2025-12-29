@@ -41,7 +41,7 @@ func (a *autoCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) 
 }
 
 // RunPrompt shows a command prompt that accepts /mode commands or 'm' for menu
-func RunPrompt(cfg *config.Config, client *ollama.Client, sess *session.Session) error {
+func RunPrompt(cfg *config.Config, client *ollama.Client, sess *session.Session, version string) error {
 	rl, err := readline.NewEx(&readline.Config{
 		Prompt:          "> ",
 		HistoryFile:     "/tmp/llamasidekick_history",
@@ -80,7 +80,7 @@ func RunPrompt(cfg *config.Config, client *ollama.Client, sess *session.Session)
 		// Check for menu (support both 'm' and 'menu')
 		if input == "m" || input == "menu" {
 			// Show menu and wait for selection
-			if err := ShowMenu(cfg, client, sess); err != nil {
+			if err := ShowMenu(cfg, client, sess, version); err != nil {
 				return err
 			}
 			continue
@@ -136,10 +136,20 @@ func RunPrompt(cfg *config.Config, client *ollama.Client, sess *session.Session)
 			sess.History = []session.Message{}
 			sess.Save()
 			
-			// If there's a prompt, execute directly
+			// If there's a prompt, for Agent mode use ProcessInput directly
 			if prompt != "" {
-				if err := executeQuickCommand(mode, client, sess, cfg, prompt); err != nil {
-					fmt.Printf("\033[38;5;9mError: %v\033[0m\n", err)
+				if agentMode, isAgent := mode.(*modes.AgentMode); isAgent {
+					// Agent mode needs special handling for file creation
+					// Detect and read files from the prompt
+					enhancedPrompt := modes.ReadFilesFromInput(prompt)
+					sess.AddMessage("user", prompt)
+					if err := agentMode.ProcessInput(client, sess, cfg, enhancedPrompt); err != nil {
+						fmt.Printf("\033[38;5;9mError: %v\033[0m\n", err)
+					}
+				} else {
+					if err := executeQuickCommand(mode, client, sess, cfg, prompt); err != nil {
+						fmt.Printf("\033[38;5;9mError: %v\033[0m\n", err)
+					}
 				}
 			} else {
 				// No prompt, enter interactive mode

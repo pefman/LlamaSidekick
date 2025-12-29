@@ -55,6 +55,8 @@ func extractAndCreateFiles(response string) []string {
 	pattern := regexp.MustCompile(`(?i)FILENAME:\s*([^\n]+)\n\s*\x60\x60\x60[^\n]*\n([\s\S]*?)\x60\x60\x60`)
 	matches := pattern.FindAllStringSubmatch(response, -1)
 	
+	fmt.Printf("\n[DEBUG] Checking for files to create... Found %d matches\n", len(matches))
+	
 	for _, match := range matches {
 		if len(match) < 3 {
 			continue
@@ -62,6 +64,8 @@ func extractAndCreateFiles(response string) []string {
 		
 		filename := strings.TrimSpace(match[1])
 		content := match[2]
+		
+		fmt.Printf("[DEBUG] Creating file: %s (%d bytes)\n", filename, len(content))
 		
 		// Create directory if needed
 		dir := filepath.Dir(filename)

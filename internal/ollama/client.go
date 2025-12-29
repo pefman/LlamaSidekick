@@ -12,10 +12,11 @@ import (
 
 // Client represents an Ollama API client
 type Client struct {
-	Host   string
-	Model  string
-	Debug  bool
-	client *http.Client
+	Host    string
+	Model   string
+	Debug   bool
+	Version string
+	client  *http.Client
 }
 
 // NewClient creates a new Ollama client
@@ -34,6 +35,7 @@ type GenerateRequest struct {
 	System      string  `json:"system,omitempty"`
 	Temperature float64 `json:"temperature,omitempty"`
 	Stream      bool    `json:"stream"`
+	Format      string  `json:"format,omitempty"`
 }
 
 // GenerateResponse represents a response from the Ollama generate API
@@ -47,6 +49,64 @@ type GenerateResponse struct {
 // StreamCallback is called for each chunk of the response
 type StreamCallback func(chunk string) error
 
+// GenerateJSON generates with JSON format constraint (non-streaming)
+func (c *Client) GenerateJSON(model, prompt, system string, temperature float64) (string, error) {
+	reqBody := GenerateRequest{
+		Model:       model,
+		Prompt:      prompt,
+		System:      system,
+		Temperature: temperature,
+		Stream:      false,
+		Format:      "json",
+	}
+	
+	if c.Debug {
+		fmt.Println("\n\033[38;5;240m=== DEBUG: JSON Request to Ollama ===")
+		if c.Version != "" {
+			fmt.Printf("LlamaSidekick Version: %s\n", c.Version)
+		}
+		fmt.Printf("Model: %s\n", reqBody.Model)
+		fmt.Printf("Format: json\n")
+		fmt.Printf("Temperature: %.2f\n", reqBody.Temperature)
+		fmt.Printf("System Prompt: %s\n", system)
+		fmt.Printf("User Prompt: %s\n", prompt)
+		fmt.Println("=== END DEBUG ===")
+		fmt.Println("\033[0m")
+	}
+	
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal request: %w", err)
+	}
+	
+	url := strings.TrimSuffix(c.Host, "/") + "/api/generate"
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+	
+	var result GenerateResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("failed to decode response: %w", err)
+	}
+	
+	if c.Debug {
+		fmt.Println("\n\033[38;5;240m=== DEBUG: JSON Response from Ollama ===")
+		fmt.Printf("Response: %s\n", result.Response)
+		fmt.Println("=== END DEBUG ===")
+		fmt.Println("\033[0m")
+	}
+	
+	return result.Response, nil
+}
+
 // Generate sends a prompt to Ollama and streams the response
 func (c *Client) Generate(prompt, system string, temperature float64, callback StreamCallback) error {
 	reqBody := GenerateRequest{
@@ -59,6 +119,9 @@ func (c *Client) Generate(prompt, system string, temperature float64, callback S
 	
 	if c.Debug {
 		fmt.Println("\n\033[38;5;240m=== DEBUG: Request to Ollama ===")
+		if c.Version != "" {
+			fmt.Printf("LlamaSidekick Version: %s\n", c.Version)
+		}
 		fmt.Printf("Model: %s\n", reqBody.Model)
 		fmt.Printf("Temperature: %.2f\n", reqBody.Temperature)
 		fmt.Printf("System Prompt: %s\n", system)
@@ -173,6 +236,9 @@ func (c *Client) GenerateWithModel(model, prompt, system string, temperature flo
 	
 	if c.Debug {
 		fmt.Println("\n\033[38;5;240m=== DEBUG: Request to Ollama ===")
+		if c.Version != "" {
+			fmt.Printf("LlamaSidekick Version: %s\n", c.Version)
+		}
 		fmt.Printf("Model: %s\n", reqBody.Model)
 		fmt.Printf("Temperature: %.2f\n", reqBody.Temperature)
 		fmt.Printf("System Prompt: %s\n", system)
