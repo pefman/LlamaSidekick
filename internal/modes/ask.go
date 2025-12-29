@@ -54,13 +54,71 @@ YOU MUST NOT:
 If asked how to do something, explain what it is and how it works conceptually, but don't provide implementation steps.`
 }
 
+// ProcessInput handles a single ask request.
+func (m *AskMode) ProcessInput(client *ollama.Client, sess *session.Session, cfg *config.Config, input string) error {
+	sess.SetMode(ModeAsk)
+	modelName := cfg.GetModelForMode("ask")
+
+	// Detect and read files mentioned in the input
+	enhancedInput := ReadFilesFromInputWithRoot(input, sess.ProjectRoot)
+
+	// Add user message to history
+	sess.AddMessage("user", input)
+
+	// Build conversation context from session history
+	conversationContext := BuildConversationContext(sess, enhancedInput)
+
+	// Start spinner
+	s := spinner.New(spinner.CharSets[11], 100*time.Millisecond)
+	s.Suffix = " Thinking..."
+	s.Start()
+
+	var fullResponse strings.Builder
+	err := client.GenerateWithModel(
+		modelName,
+		conversationContext,
+		m.GetSystemPrompt(),
+		cfg.Ollama.Temperature,
+		func(chunk string) error {
+			if s.Active() {
+				s.Stop()
+				fmt.Println()
+			}
+			fullResponse.WriteString(chunk)
+			return nil
+		},
+	)
+
+	if s.Active() {
+		s.Stop()
+	}
+
+	if err != nil {
+		return err
+	}
+
+	response := fullResponse.String()
+
+	// Render the markdown response
+	rendered := renderer.RenderMarkdown(response)
+	fmt.Println(rendered)
+
+	sess.AddMessage("assistant", response)
+	if err := sess.Save(); err != nil {
+		fmt.Printf("Warning: failed to save session: %v\n", err)
+	}
+
+	return nil
+}
+
 func (m *AskMode) Run(client *ollama.Client, sess *session.Session, cfg *config.Config) error {
 	fmt.Println("\n\033[1;38;5;75m=== Ask Mode ===\033[0m")
 	fmt.Println("\033[38;5;240mGet answers and information without any changes or plans\033[0m")
-	fmt.Println("\033[38;5;240mType 'q' to return to menu\033[0m\n")
+	fmt.Println("\033[38;5;240mType 'q' to return to menu\033[0m")
+	fmt.Println()
 
+	sess.SetMode(ModeAsk)
 	reader := bufio.NewReader(os.Stdin)
-	modelName := cfg.GetModelForMode("ask")
 
 	for {
 		fmt.Print("\n\033[1;38;5;75mask>\033[0m ")
@@ -79,40 +137,9 @@ func (m *AskMode) Run(client *ollama.Client, sess *session.Session, cfg *config.
 			return nil
 		}
 
-		// Detect and read files mentioned in the input
-		enhancedInput := ReadFilesFromInput(input)
-
-		sess.AddMessage("user", input)
-
-		// Start spinner
-		s := spinner.New(spinner.CharSets[11], 100*time.Millisecond)
-		s.Suffix = " Thinking..."
-		s.Start()
-
-		var fullResponse strings.Builder
-		err = client.GenerateWithModel(
-			modelName,
-			enhancedInput,
-			m.GetSystemPrompt(),
-			cfg.Ollama.Temperature,
-			func(chunk string) error {
-				fullResponse.WriteString(chunk)
-				return nil
-			},
-		)
-
-		if err != nil {
+		if err := m.ProcessInput(client, sess, cfg, input); err != nil {
 			fmt.Printf("\n\033[38;5;9mError: %v\033[0m\n", err)
 			continue
 		}
-
-		response := fullResponse.String()
-		
-		// Render the markdown response
-		rendered := renderer.RenderMarkdown(response)
-		fmt.Println(rendered)
-
-		sess.AddMessage("assistant", response)
-		sess.Save()
 	}
 }

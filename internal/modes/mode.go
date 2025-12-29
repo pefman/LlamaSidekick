@@ -27,4 +27,5 @@ const (
 	ModeEdit  = "edit"
 	ModeAgent = "agent"
 	ModeCmd   = "cmd"
+	ModeAsk   = "ask"
 )

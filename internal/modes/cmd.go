@@ -63,12 +63,75 @@ func (m *CmdMode) GetSystemPrompt() string {
 		"Output the command only.", osType, shellType, osType, osType, exampleCmd)
 }
 
+// ProcessInput handles a single cmd request.
+func (m *CmdMode) ProcessInput(client *ollama.Client, sess *session.Session, cfg *config.Config, input string) error {
+	sess.SetMode(ModeCmd)
+	modelName := cfg.GetModelForMode("cmd")
+
+	enhancedInput := ReadFilesFromInputWithRoot(input, sess.ProjectRoot)
+	sess.AddMessage("user", input)
+
+	conversationContext := BuildConversationContext(sess, enhancedInput)
+
+	// Start spinner
+	s := spinner.New(spinner.CharSets[11], 100*time.Millisecond)
+	s.Suffix = " Generating command..."
+	s.Start()
+
+	var fullResponse strings.Builder
+	err := client.GenerateWithModel(
+		modelName,
+		conversationContext,
+		m.GetSystemPrompt(),
+		cfg.Ollama.Temperature,
+		func(chunk string) error {
+			if s.Active() {
+				s.Stop()
+				fmt.Print(lipgloss.NewStyle().Foreground(lipgloss.Color("yellow")).Render("\nCommands:\n"))
+			}
+			fmt.Print(responseStyle.Render(chunk))
+			fullResponse.WriteString(chunk)
+			return nil
+		},
+	)
+
+	if s.Active() {
+		s.Stop()
+	}
+	if err != nil {
+		return fmt.Errorf("error generating response: %w", err)
+	}
+
+	fmt.Println()
+
+	response := fullResponse.String()
+	commands := extractCommands(response)
+	if len(commands) > 0 {
+		cmdToCopy := strings.Join(commands, "\n")
+		if err := clipboard.WriteAll(cmdToCopy); err != nil {
+			fmt.Printf("Warning: failed to copy to clipboard: %v\n", err)
+		} else {
+			fmt.Println(copiedStyle.Render("✓ Command(s) copied to clipboard - ready to paste!"))
+		}
+	}
+
+	fmt.Println()
+
+	sess.AddMessage("assistant", response)
+	if err := sess.Save(); err != nil {
+		fmt.Printf("Warning: failed to save session: %v\n", err)
+	}
+
+	return nil
+}
+
 func (m *CmdMode) Run(client *ollama.Client, sess *session.Session, cfg *config.Config) error {
 	sess.SetMode(ModeCmd)
 	
 	fmt.Println(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("yellow")).Render("\n=== CMD MODE ==="))
 	fmt.Println("Get command help - commands are copied to clipboard, NEVER executed.")
-	fmt.Println("Type 'exit' to return to main menu.\n")
+	fmt.Println("Type 'exit' to return to main menu.")
+	fmt.Println()
 	
 	reader := bufio.NewReader(os.Stdin)
 	
@@ -89,66 +152,9 @@ func (m *CmdMode) Run(client *ollama.Client, sess *session.Session, cfg *config.
 			break
 		}
 		
-		// Add user message to history
-		sess.AddMessage("user", input)
-		
-		// Start spinner
-		s := spinner.New(spinner.CharSets[11], 100*time.Millisecond)
-		s.Suffix = " Generating command..."
-		s.Start()
-		
-		var fullResponse strings.Builder
-		modelName := cfg.GetModelForMode("cmd")
-		err = client.GenerateWithModel(
-			modelName,
-			input,
-			m.GetSystemPrompt(),
-			cfg.Ollama.Temperature,
-			func(chunk string) error {
-				if s.Active() {
-					s.Stop()
-					fmt.Print(lipgloss.NewStyle().Foreground(lipgloss.Color("yellow")).Render("\nCommands:\n"))
-				}
-				fmt.Print(responseStyle.Render(chunk))
-				fullResponse.WriteString(chunk)
-				return nil
-			},
-		)
-		
-		if s.Active() {
-			s.Stop()
-		}
-		
-		if err != nil {
+		if err := m.ProcessInput(client, sess, cfg, input); err != nil {
 			fmt.Printf("\nError: %v\n", err)
 			continue
-		}
-		
-		fmt.Println()
-		
-		response := fullResponse.String()
-		
-		// Extract commands from code blocks
-		commands := extractCommands(response)
-		
-		if len(commands) > 0 {
-			// Copy the first command to clipboard (or all if multiple)
-			cmdToCopy := strings.Join(commands, "\n")
-			if err := clipboard.WriteAll(cmdToCopy); err != nil {
-				fmt.Printf("Warning: failed to copy to clipboard: %v\n", err)
-			} else {
-				fmt.Println(copiedStyle.Render("✓ Command(s) copied to clipboard - ready to paste!"))
-			}
-		}
-		
-		fmt.Println()
-		
-		// Add assistant response to history
-		sess.AddMessage("assistant", response)
-		
-		// Save session
-		if err := sess.Save(); err != nil {
-			fmt.Printf("Warning: failed to save session: %v\n", err)
 		}
 	}
 	

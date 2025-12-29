@@ -65,6 +65,13 @@ func (c *Config) GetModelForMode(mode string) string {
 
 // GetConfigDir returns the cross-platform config directory
 func GetConfigDir() (string, error) {
+	if override := os.Getenv("LLAMASIDEKICK_CONFIG_DIR"); override != "" {
+		if err := os.MkdirAll(override, 0755); err != nil {
+			return "", fmt.Errorf("failed to create override config dir: %w", err)
+		}
+		return override, nil
+	}
+
 	configDir, err := os.UserConfigDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to get user config dir: %w", err)

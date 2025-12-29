@@ -3,7 +3,6 @@ package ui
 import (
 	"fmt"
 	"io"
-	"regexp"
 	"strings"
 	"time"
 
@@ -19,6 +18,27 @@ import (
 
 // autoCompleter provides tab completion for commands
 type autoCompleter struct{}
+
+func modeForCommand(command string) modes.Mode {
+	switch command {
+	case "plan":
+		return &modes.PlanMode{}
+	case "edit":
+		return &modes.EditMode{}
+	case "agent":
+		return &modes.AgentMode{}
+	case "cmd":
+		return &modes.CmdMode{}
+	case "ask":
+		return &modes.AskMode{}
+	default:
+		return nil
+	}
+}
+
+type processInputMode interface {
+	ProcessInput(client *ollama.Client, sess *session.Session, cfg *config.Config, input string) error
+}
 
 func (a *autoCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) {
 	lineStr := string(line)
@@ -107,43 +127,24 @@ func RunPrompt(cfg *config.Config, client *ollama.Client, sess *session.Session,
 				prompt = parts[1]
 			}
 			
-			var mode modes.Mode
-			switch command {
-			case "plan":
-				mode = &modes.PlanMode{}
-			case "edit":
-				mode = &modes.EditMode{}
-			case "agent":
-				mode = &modes.AgentMode{}
-			case "cmd":
-				mode = &modes.CmdMode{}
-			case "ask":
-				mode = &modes.AskMode{}
-			default:
+			mode := modeForCommand(command)
+			if mode == nil {
 				fmt.Printf("\033[38;5;9mUnknown command: /%s\033[0m\n", command)
 				fmt.Println("\033[38;5;240mAvailable commands: /plan, /edit, /agent, /cmd, /ask, /clear, or 'm' for menu\033[0m")
 				continue
 			}
 			
-			// Save debug snapshot before clearing if debug mode is enabled
+			// Save debug snapshot if debug mode is enabled
 			if cfg.Ollama.Debug && len(sess.History) > 0 {
 				if err := sess.SaveDebug(command); err != nil {
 					fmt.Printf("\033[38;5;9mError saving debug session: %v\033[0m\n", err)
 				}
 			}
 			
-			// Clear session history for fresh start
-			sess.History = []session.Message{}
-			sess.Save()
-			
-			// If there's a prompt, for Agent mode use ProcessInput directly
+			// If there's a prompt, run single-shot
 			if prompt != "" {
-				if agentMode, isAgent := mode.(*modes.AgentMode); isAgent {
-					// Agent mode needs special handling for file creation
-					// Detect and read files from the prompt
-					enhancedPrompt := modes.ReadFilesFromInput(prompt)
-					sess.AddMessage("user", prompt)
-					if err := agentMode.ProcessInput(client, sess, cfg, enhancedPrompt); err != nil {
+				if pim, ok := mode.(processInputMode); ok {
+					if err := pim.ProcessInput(client, sess, cfg, prompt); err != nil {
 						fmt.Printf("\033[38;5;9mError: %v\033[0m\n", err)
 					}
 				} else {
@@ -160,10 +161,27 @@ func RunPrompt(cfg *config.Config, client *ollama.Client, sess *session.Session,
 			continue
 		}
 		
-		// Default: treat as a quick /plan command
-		mode := &modes.PlanMode{}
-		if err := executeQuickCommand(mode, client, sess, cfg, input); err != nil {
-			fmt.Printf("\033[38;5;9mError: %v\033[0m\n", err)
+		// Default: continue the last-used mode (fallback to plan)
+		modeKey := sess.Mode
+		if modeKey == "" {
+			modeKey = sess.LastMode
+		}
+		if modeKey == "" {
+			modeKey = modes.ModePlan
+		}
+		mode := modeForCommand(modeKey)
+		if mode == nil {
+			mode = &modes.PlanMode{}
+		}
+
+		if pim, ok := mode.(processInputMode); ok {
+			if err := pim.ProcessInput(client, sess, cfg, input); err != nil {
+				fmt.Printf("\033[38;5;9mError: %v\033[0m\n", err)
+			}
+		} else {
+			if err := executeQuickCommand(mode, client, sess, cfg, input); err != nil {
+				fmt.Printf("\033[38;5;9mError: %v\033[0m\n", err)
+			}
 		}
 	}
 	
@@ -265,12 +283,13 @@ func executeQuickCommand(mode modes.Mode, client *ollama.Client, sess *session.S
 		cleanResponse := strings.TrimSpace(response)
 		if cleanResponse != "" {
 			if err := clipboard.WriteAll(cleanResponse); err == nil {
-				fmt.Println("\n\033[1;32m✓ Copied to clipboard\033[0m")
+				fmt.Println()
+				fmt.Println("\033[1;32m✓ Copied to clipboard\033[0m")
 			}
 		}
 	}
 	
-	fmt.Println("\n")
+	fmt.Println()
 	
 	sess.AddMessage("assistant", response)
 	
@@ -280,22 +299,4 @@ func executeQuickCommand(mode modes.Mode, client *ollama.Client, sess *session.S
 	}
 	
 	return nil
-}
-
-// extractCommandsFromResponse extracts commands from code blocks
-func extractCommandsFromResponse(response string) []string {
-	re := regexp.MustCompile("```(?:bash|powershell|sh|shell)?\\n([^`]+)```")
-	matches := re.FindAllStringSubmatch(response, -1)
-	
-	var commands []string
-	for _, match := range matches {
-		if len(match) > 1 {
-			cmd := strings.TrimSpace(match[1])
-			if cmd != "" {
-				commands = append(commands, cmd)
-			}
-		}
-	}
-	
-	return commands
 }

@@ -8,8 +8,15 @@ import (
 	"strings"
 )
 
-// ReadFilesFromInput detects file references in input and reads their contents
+// ReadFilesFromInput detects file references in input and reads their contents.
+// It attempts to read referenced files from the current working directory.
 func ReadFilesFromInput(input string) string {
+	return ReadFilesFromInputWithRoot(input, "")
+}
+
+// ReadFilesFromInputWithRoot is like ReadFilesFromInput, but also attempts to resolve
+// file paths relative to projectRoot.
+func ReadFilesFromInputWithRoot(input string, projectRoot string) string {
 	filePattern := regexp.MustCompile(`(?:^|\s)([a-zA-Z0-9_\-./\\]+\.(go|js|ts|py|java|c|cpp|h|rs|rb|php|cs|swift|kt|sh|bash|yml|yaml|json|xml|md|txt))(?:\s|$)`)
 	matches := filePattern.FindAllStringSubmatch(input, -1)
 	
@@ -25,6 +32,16 @@ func ReadFilesFromInput(input string) string {
 		
 		// Try to read the file from current directory
 		content, err := os.ReadFile(filename)
+		if err != nil {
+			// Try relative to project root
+			if projectRoot != "" {
+				rootPath := filepath.Join(projectRoot, filename)
+				if c2, err2 := os.ReadFile(rootPath); err2 == nil {
+					content = c2
+					err = nil
+				}
+			}
+		}
 		if err != nil {
 			// Try with absolute path
 			absPath, _ := filepath.Abs(filename)

@@ -72,12 +72,65 @@ FORMATTING:
 REMEMBER: You are here to PLAN and UNDERSTAND, not to implement. No code examples. No scripts. Just conversation and planning.`
 }
 
+// ProcessInput handles a single plan request.
+func (m *PlanMode) ProcessInput(client *ollama.Client, sess *session.Session, cfg *config.Config, input string) error {
+	sess.SetMode(ModePlan)
+	modelName := cfg.GetModelForMode("plan")
+
+	enhancedInput := ReadFilesFromInputWithRoot(input, sess.ProjectRoot)
+	sess.AddMessage("user", input)
+
+	conversationContext := BuildConversationContext(sess, enhancedInput)
+
+	// Start spinner
+	s := spinner.New(spinner.CharSets[11], 100*time.Millisecond)
+	s.Suffix = " Thinking..."
+	s.Start()
+
+	var fullResponse strings.Builder
+	err := client.GenerateWithModel(
+		modelName,
+		conversationContext,
+		m.GetSystemPrompt(),
+		cfg.Ollama.Temperature,
+		func(chunk string) error {
+			if s.Active() {
+				s.Stop()
+				fmt.Print(lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Render("\nAssistant: "))
+				fmt.Println()
+			}
+			fullResponse.WriteString(chunk)
+			return nil
+		},
+	)
+
+	if s.Active() {
+		s.Stop()
+	}
+	if err != nil {
+		return fmt.Errorf("error generating response: %w", err)
+	}
+
+	markdown := fullResponse.String()
+	renderedMd := renderer.RenderMarkdown(markdown)
+	fmt.Print(renderedMd)
+	fmt.Println()
+
+	sess.AddMessage("assistant", markdown)
+	if err := sess.Save(); err != nil {
+		fmt.Printf("Warning: failed to save session: %v\n", err)
+	}
+
+	return nil
+}
+
 func (m *PlanMode) Run(client *ollama.Client, sess *session.Session, cfg *config.Config) error {
 	sess.SetMode(ModePlan)
 	
 	fmt.Println(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205")).Render("\n=== PLAN MODE ==="))
 	fmt.Println("Create development plans and break down tasks.")
-	fmt.Println("Type 'exit' to return to main menu.\n")
+	fmt.Println("Type 'exit' to return to main menu.")
+	fmt.Println()
 	
 	reader := bufio.NewReader(os.Stdin)
 	
@@ -98,52 +151,9 @@ func (m *PlanMode) Run(client *ollama.Client, sess *session.Session, cfg *config
 			break
 		}
 		
-		// Add user message to history
-		sess.AddMessage("user", input)
-		
-		// Start spinner
-		s := spinner.New(spinner.CharSets[11], 100*time.Millisecond)
-		s.Suffix = " Thinking..."
-		s.Start()
-		
-		var fullResponse strings.Builder
-		modelName := cfg.GetModelForMode("plan")
-		err = client.GenerateWithModel(
-			modelName,
-			input,
-			m.GetSystemPrompt(),
-			cfg.Ollama.Temperature,
-			func(chunk string) error {
-				if s.Active() {
-					s.Stop()
-					fmt.Print(lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Render("\nAssistant: "))
-					fmt.Println()
-				}
-				fullResponse.WriteString(chunk)
-				return nil
-			},
-		)
-		
-		if s.Active() {
-			s.Stop()
-		}
-		if err != nil {
+		if err := m.ProcessInput(client, sess, cfg, input); err != nil {
 			fmt.Printf("\nError: %v\n", err)
 			continue
-		}
-		
-		// Render the complete markdown response
-		markdown := fullResponse.String()
-		renderedMd := renderer.RenderMarkdown(markdown)
-		fmt.Print(renderedMd)
-		fmt.Println("\n")
-		
-		// Add assistant response to history
-		sess.AddMessage("assistant", fullResponse.String())
-		
-		// Save session
-		if err := sess.Save(); err != nil {
-			fmt.Printf("Warning: failed to save session: %v\n", err)
 		}
 	}
 	

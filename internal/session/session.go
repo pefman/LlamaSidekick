@@ -23,6 +23,8 @@ type Session struct {
 	ProjectRoot string    `json:"project_root"`
 	ActiveFiles []string  `json:"active_files"`
 	Mode        string    `json:"mode"`
+	LastMode    string    `json:"last_mode"`
+	LastEditedFile string `json:"last_edited_file"`
 	History     []Message `json:"history"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
@@ -35,6 +37,8 @@ func New(projectRoot string) *Session {
 		ProjectRoot: projectRoot,
 		ActiveFiles: []string{},
 		Mode:        "",
+		LastMode:    "",
+		LastEditedFile: "",
 		History:     []Message{},
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
@@ -77,6 +81,12 @@ func (s *Session) RemoveFile(filepath string) {
 // SetMode sets the current mode
 func (s *Session) SetMode(mode string) {
 	s.Mode = mode
+	s.LastMode = mode
+	s.UpdatedAt = time.Now()
+}
+
+func (s *Session) SetLastEditedFile(path string) {
+	s.LastEditedFile = path
 	s.UpdatedAt = time.Now()
 }
 
@@ -142,6 +152,12 @@ func Load(projectRoot string) (*Session, error) {
 	var session Session
 	if err := json.Unmarshal(data, &session); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal session: %w", err)
+	}
+
+	// Always trust the current project root from the caller.
+	session.ProjectRoot = projectRoot
+	if session.Mode == "" && session.LastMode != "" {
+		session.Mode = session.LastMode
 	}
 	
 	return &session, nil

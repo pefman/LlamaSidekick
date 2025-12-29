@@ -2,10 +2,8 @@ package modes
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -14,6 +12,7 @@ import (
 	"github.com/yourusername/llamasidekick/internal/config"
 	"github.com/yourusername/llamasidekick/internal/ollama"
 	"github.com/yourusername/llamasidekick/internal/renderer"
+	"github.com/yourusername/llamasidekick/internal/safeio"
 	"github.com/yourusername/llamasidekick/internal/session"
 )
 
@@ -64,8 +63,13 @@ Be thorough, methodical, and proactive in your assistance. CREATE files automati
 
 // ProcessInput handles a single agent input with file creation support
 func (m *AgentMode) ProcessInput(client *ollama.Client, sess *session.Session, cfg *config.Config, input string) error {
+	sess.SetMode(ModeAgent)
 	modelName := cfg.GetModelForMode("agent")
 	var responseText string
+
+	enhancedInput := ReadFilesFromInputWithRoot(input, sess.ProjectRoot)
+	sess.AddMessage("user", input)
+	conversationContext := BuildConversationContext(sess, enhancedInput)
 	
 	// Detect if this is a file creation request
 	lowerInput := strings.ToLower(input)
@@ -100,32 +104,14 @@ For multiple files:
 
 Output ONLY the JSON array. Any other text will cause failure.`
 		
-		jsonResponse, err := client.GenerateJSON(modelName, input, jsonSystemPrompt, 0.3)
+		jsonResponse, err := client.GenerateJSON(modelName, conversationContext, jsonSystemPrompt, 0.3)
 		if err != nil {
 			return fmt.Errorf("error generating JSON: %w", err)
 		}
-		
-// Parse JSON response - handle both array and single object
-	var files []struct {
-		Filename string `json:"filename"`
-		Content  string `json:"content"`
-	}
-	
-	// Try to unmarshal as array first
-	if err := json.Unmarshal([]byte(jsonResponse), &files); err != nil {
-		// If that fails, try as single object
-		var singleFile struct {
-			Filename string `json:"filename"`
-			Content  string `json:"content"`
-		}
-		if err2 := json.Unmarshal([]byte(jsonResponse), &singleFile); err2 != nil {
+
+		files, err := ParseGeneratedFilesJSON(jsonResponse)
+		if err != nil {
 			return fmt.Errorf("error parsing JSON response: %w\nResponse was: %s", err, jsonResponse)
-		}
-		// Wrap single file in array
-		files = []struct {
-			Filename string `json:"filename"`
-			Content  string `json:"content"`
-		}{singleFile}
 		}
 		
 		if client.Debug {
@@ -134,22 +120,21 @@ Output ONLY the JSON array. Any other text will cause failure.`
 		
 		// Create files
 		for _, file := range files {
-			// Create directory if needed
-			dir := filepath.Dir(file.Filename)
-			if dir != "." {
-				if err := os.MkdirAll(dir, 0755); err != nil {
-					fmt.Printf("\033[38;5;9mError creating directory %s: %v\033[0m\n", dir, err)
-					continue
-				}
-			}
-			
-			// Write file
-			if err := os.WriteFile(file.Filename, []byte(file.Content), 0644); err != nil {
-				fmt.Printf("\033[38;5;9mError creating file %s: %v\033[0m\n", file.Filename, err)
+			absPath, relPath, err := safeio.ResolveWithinRoot(sess.ProjectRoot, file.Filename)
+			if err != nil {
+				fmt.Printf("\033[38;5;9mRefusing to write '%s': %v\033[0m\n", file.Filename, err)
 				continue
 			}
-			
-			fmt.Printf("\033[1;32m✓ Created: %s\033[0m (%d bytes)\n", file.Filename, len(file.Content))
+			backup, err := safeio.WriteFileWithBackup(absPath, []byte(file.Content))
+			if err != nil {
+				fmt.Printf("\033[38;5;9mError writing file %s: %v\033[0m\n", relPath, err)
+				continue
+			}
+			if backup != "" {
+				fmt.Printf("\033[1;32m✓ Wrote: %s\033[0m (%d bytes)\n\033[38;5;240m  Backup saved: %s\033[0m\n", relPath, len(file.Content), backup)
+			} else {
+				fmt.Printf("\033[1;32m✓ Wrote: %s\033[0m (%d bytes)\n", relPath, len(file.Content))
+			}
 		}
 		fmt.Println()
 		
@@ -165,7 +150,7 @@ Output ONLY the JSON array. Any other text will cause failure.`
 		var fullResponse strings.Builder
 		err := client.GenerateWithModel(
 			modelName,
-			input,
+			conversationContext,
 			m.GetSystemPrompt(),
 			cfg.Ollama.Temperature,
 			func(chunk string) error {
@@ -190,7 +175,7 @@ Output ONLY the JSON array. Any other text will cause failure.`
 		markdown := fullResponse.String()
 		renderedMd := renderer.RenderMarkdown(markdown)
 		fmt.Print(renderedMd)
-		fmt.Println("\n")
+		fmt.Println()
 		
 		responseText = markdown
 	}
@@ -211,7 +196,8 @@ func (m *AgentMode) Run(client *ollama.Client, sess *session.Session, cfg *confi
 	
 	fmt.Println(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("blue")).Render("\n=== AGENT MODE ==="))
 	fmt.Println("Autonomous multi-step task execution and problem solving.")
-	fmt.Println("Type 'exit' to return to main menu.\n")
+	fmt.Println("Type 'exit' to return to main menu.")
+	fmt.Println()
 	
 	reader := bufio.NewReader(os.Stdin)
 	
@@ -231,9 +217,6 @@ func (m *AgentMode) Run(client *ollama.Client, sess *session.Session, cfg *confi
 		if strings.ToLower(input) == "exit" {
 			break
 		}
-		
-		// Add user message to history
-		sess.AddMessage("user", input)
 		
 		// Process the input (handles file creation and normal responses)
 		if err := m.ProcessInput(client, sess, cfg, input); err != nil {
